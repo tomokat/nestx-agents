@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>{{title}}</title>
+    <!-- Stencil Loader -->
+    <!-- Note: Namespace will be 'ui-library' -->
+    <script type="module" src="/static/ui-library/ui-library.esm.js"></script>
+    <script nomodule src="/static/ui-library/ui-library.js"></script>
+    
+    <!-- HTMX -->
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="bg-gray-100 p-10 font-sans">
+    <div class="max-w-md mx-auto bg-white rounded-xl shadow-md overflow-hidden md:max-w-2xl p-6">
+        <h1 class="text-2xl font-bold mb-4 text-gray-800">Hypermedia Dashboard</h1>
+        
+        <div class="mb-6 p-4 border rounded bg-gray-50 flex items-center justify-between">
+            <span class="text-gray-600">Current Status:</span>
+            <div id="status-container">
+                <!-- Initial Render -->
+                <my-status-badge type="success">System Online</my-status-badge>
+            </div>
+        </div>
+
+        <button 
+          class="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition-colors"
+          hx-get="/api/tasks/partial" 
+          hx-target="#status-container" 
+          hx-swap="innerHTML"
+        >
+          Check Status
+        </button>
+    </div>
+  </body>
+</html>
