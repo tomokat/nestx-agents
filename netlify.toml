@@ -1,0 +1,12 @@
+[build]
+  command = "sh deploy.sh"
+  publish = "publish"
+  functions = "netlify/functions"
+
+[functions]
+  included_files = ["backend/dist/views/**"]
+
+[[redirects]]
+  from = "/*"
+  to = "/.netlify/functions/main"
+  status = 200

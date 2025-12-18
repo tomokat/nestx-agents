@@ -1,0 +1,2 @@
+import{p as t,b as a}from"./p-Da-d8Ktn.js";export{s as setNonce}from"./p-Da-d8Ktn.js";import{g as r}from"./p-DQuL1Twl.js";var o=()=>{const s=import.meta.url;const a={};if(s!==""){a.resourcesUrl=new URL(".",s).href}return t(a)};o().then((async t=>{await r();return a([["p-33f3b799",[[769,"my-component",{first:[1],middle:[1],last:[1]}]]],["p-ca505852",[[769,"my-status-badge",{type:[1]}]]]],t)}));
+//# sourceMappingURL=ui-library.esm.js.map

@@ -1,0 +1,13 @@
+{
+  "entries": [
+    "components/my-component/my-component.js",
+    "components/my-status-badge/my-status-badge.js"
+  ],
+  "compiler": {
+    "name": "@stencil/core",
+    "version": "4.39.0",
+    "typescriptVersion": "5.8.3"
+  },
+  "collections": [],
+  "bundles": []
+}
