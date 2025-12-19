@@ -1,39 +1,70 @@
 <!DOCTYPE html>
 <html>
-  <head>
-    <meta charset="utf-8" />
-    <title>{{title}}</title>
-    <!-- Stencil Loader -->
-    <!-- Note: Namespace will be 'ui-library' -->
-    <script type="module" src="/static/ui-library/ui-library.esm.js"></script>
-    <script nomodule src="/static/ui-library/ui-library.js"></script>
-    
-    <!-- HTMX -->
-    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
-    
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-  </head>
-  <body class="bg-gray-100 p-10 font-sans">
-    <div class="max-w-md mx-auto bg-white rounded-xl shadow-md overflow-hidden md:max-w-2xl p-6">
-        <h1 class="text-2xl font-bold mb-4 text-gray-800">Hypermedia Dashboard</h1>
-        
-        <div class="mb-6 p-4 border rounded bg-gray-50 flex items-center justify-between">
-            <span class="text-gray-600">Current Status:</span>
-            <div id="status-container">
-                <!-- Initial Render -->
-                <my-status-badge type="success">System Online</my-status-badge>
-            </div>
-        </div>
 
-        <button 
-          class="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition-colors"
-          hx-get="/api/tasks/partial" 
-          hx-target="#status-container" 
-          hx-swap="innerHTML"
-        >
-          Check Status
-        </button>
+<head>
+  <meta charset="utf-8" />
+  <title>{{title}}</title>
+  <!-- Stencil Loader -->
+  <!-- Note: Namespace will be 'ui-library' -->
+  <script type="module" src="/static/ui-library/ui-library.esm.js"></script>
+  <script nomodule src="/static/ui-library/ui-library.js"></script>
+
+  <!-- HTMX -->
+  <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="bg-gray-100 p-10 font-sans">
+  <div class="max-w-md mx-auto bg-white rounded-xl shadow-md overflow-hidden md:max-w-2xl p-6">
+    <h1 class="text-2xl font-bold mb-4 text-gray-800">Hypermedia Dashboard</h1>
+
+    <div class="mb-6 p-4 border rounded bg-gray-50 flex items-center justify-between">
+      <span class="text-gray-600">Current Status:</span>
+      <div id="status-container">
+        <!-- Initial Render -->
+        <my-status-badge type="success">System Online</my-status-badge>
+      </div>
     </div>
-  </body>
+
+    <!-- Lazy Loaded Metrics -->
+    <div hx-get="/dashboard/metrics" hx-trigger="load delay:500ms" hx-swap="outerHTML" class="mb-6">
+      <div class="text-center p-4 text-gray-500">Loading metrics...</div>
+    </div>
+
+    <!-- Task Runner with Live Polling -->
+    <div id="task-runner-container" class="mb-6 p-4 border rounded bg-white shadow-sm">
+      {{> task_status}}
+    </div>
+
+    <!-- Search with Debouncing -->
+    <div class="mb-6 p-4 border rounded bg-white shadow-sm">
+      <h3 class="font-bold text-lg mb-4">Agent Missions</h3>
+      <input type="text" name="q" placeholder="Search missions..."
+        class="w-full px-4 py-2 mb-4 border rounded focus:outline-none focus:ring-2 focus:ring-indigo-600"
+        hx-get="/dashboard/missions/search" hx-trigger="keyup changed delay:500ms, search" hx-target="#missions-body">
+
+      <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+          <tr>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Mission Name</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Agent</th>
+          </tr>
+        </thead>
+        <tbody id="missions-body" class="bg-white divide-y divide-gray-200" hx-get="/dashboard/missions/search"
+          hx-trigger="load">
+          <!-- Results will be loaded here -->
+        </tbody>
+      </table>
+    </div>
+
+    <button class="hidden px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition-colors"
+      hx-get="/api/tasks/partial" hx-target="#status-container" hx-swap="innerHTML">
+      Check Status
+    </button>
+  </div>
+</body>
+
 </html>
