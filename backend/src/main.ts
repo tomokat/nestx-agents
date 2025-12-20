@@ -26,8 +26,7 @@ async function bootstrap() {
 
   // Register partials
   const hbs = require('hbs');
-  // Register partials
-  const hbs = require('hbs');
+
   await new Promise<void>((resolve, reject) => {
     hbs.registerPartials(viewsDir, (err: any) => {
       if (err) reject(err);
