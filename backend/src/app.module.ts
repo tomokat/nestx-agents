@@ -6,8 +6,15 @@ import { TasksController } from './tasks/tasks.controller';
 
 import { AgentModule } from './agent/agent.module';
 
+import { ConfigModule } from '@nestjs/config';
+
 @Module({
-  imports: [AgentModule],
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+    }),
+    AgentModule
+  ],
   controllers: [AppController, DashboardController, TasksController],
   providers: [AppService],
 })
