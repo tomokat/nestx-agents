@@ -1,19 +1,64 @@
-<div class="agent-analysis-result p-4 bg-base-200 rounded-lg shadow-md animate-fade-in" hx-ext="sse"
-    sse-connect="/agent/stream-analysis" sse-swap="message" id="agent-analysis-card">
+<div class="agent-analysis-result p-4 bg-base-200 rounded-lg shadow-md animate-fade-in" id="agent-analysis-card">
 
     <div class="flex items-center gap-2 mb-3">
         <div class="badge badge-primary">AI Analysis (Streaming)</div>
         <span class="text-xs text-opacity-50">Gemini 2.5 Flash</span>
-        <span class="loading loading-dots loading-xs text-info ml-auto"></span>
+        <span id="analysis-loading" class="loading loading-dots loading-xs text-info ml-auto"></span>
     </div>
     <div class="prose prose-sm max-w-none" id="analysis-result">
-        <!-- Content will be streamed here -->
-        {{#if analysis}}
-        {{{analysis}}}
-        {{/if}}
+        <!-- Content will be filled by JS -->
+        Initializing stream...
     </div>
     <div class="divider my-2"></div>
-    <div class="text-xs text-base-content/50">
-        Trace ID: {{traceId}}
+    <div class="text-xs text-base-content/50" id="trace-id">
+        Trace ID: Waiting...
     </div>
 </div>
+
+<script>
+    (function () {
+        const eventSource = new EventSource('/agent/stream-analysis');
+
+        eventSource.onmessage = function (event) {
+            try {
+                const data = JSON.parse(event.data);
+
+                // Handle Workflow Step Result (Analysis Output)
+                if (data.type === 'workflow-step-result' && (data.payload.id === 'analysisStep' || data.payload.stepId === 'analysisStep')) {
+                    const output = data.payload.output;
+                    const resultDiv = document.getElementById('analysis-result');
+                    if (resultDiv) {
+                        resultDiv.innerHTML = typeof output === 'string' ? output : JSON.stringify(output);
+                    }
+                }
+                // Update Trace ID from any event that has runId
+                if (data.runId) {
+                    const traceDiv = document.getElementById('trace-id');
+                    if (traceDiv) {
+                        traceDiv.textContent = 'Trace ID: ' + data.runId;
+                    }
+                }
+
+                // Handle Workflow Completion
+                if (data.type === 'workflow-finish') {
+                    eventSource.close();
+                    const loading = document.getElementById('analysis-loading');
+                    if (loading) loading.style.display = 'none';
+                }
+            } catch (e) {
+                console.error('Error parsing SSE event', e);
+            }
+        };
+
+        eventSource.onerror = function () {
+            console.error("SSE Connection failed");
+            eventSource.close();
+            const resultDiv = document.getElementById('analysis-result');
+            if (resultDiv && resultDiv.textContent === 'Initializing stream...') {
+                resultDiv.innerHTML = '<span class="text-error">Connection Failed. Please try again.</span>';
+            }
+            const loading = document.getElementById('analysis-loading');
+            if (loading) loading.style.display = 'none';
+        }
+    })();
+</script>
