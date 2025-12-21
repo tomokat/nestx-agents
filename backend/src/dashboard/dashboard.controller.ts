@@ -1,4 +1,6 @@
-import { Controller, Get, Post, Render, Body, Query } from '@nestjs/common';
+import { Controller, Get, Post, Render, Body, Query, Sse, Inject } from '@nestjs/common';
+import { Mastra } from '@mastra/core';
+import { map, from } from 'rxjs';
 
 // Simple in-memory state for demonstration
 let taskState = {
@@ -10,6 +12,25 @@ let taskState = {
 
 @Controller('dashboard')
 export class DashboardController {
+    constructor(@Inject('MASTRA') private readonly mastra: Mastra) { }
+
+    @Sse('system-watchdog/stream')
+    async streamSystemWatchdog() {
+        const workflow = this.mastra.getWorkflow('systemWatchdog') as any;
+        if (!workflow) {
+            throw new Error('Workflow systemWatchdog not found');
+        }
+
+        // Using createRunAsync to ensure we have a valid run context
+        const run = await workflow.createRunAsync();
+
+        // Assuming run.stream() exists and returns an async iterable or stream
+        // Wrap in 'from' to convert to Observable
+        const stream = run.stream ? run.stream() : (await workflow.streamAsync ? await workflow.streamAsync() : workflow.stream());
+
+        return map((event) => ({ data: event }))(from(stream));
+    }
+
     @Post('tasks/start')
     @Render('task-status')
     startTask() {
