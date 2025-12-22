@@ -9,6 +9,10 @@
         <!-- Content will be filled by JS -->
         Initializing stream...
     </div>
+    <div class="mt-2 text-xs text-base-content/70 flex items-center gap-2" id="step-status">
+        <span class="loading loading-spinner loading-xs hidden" id="step-spinner"></span>
+        <span id="current-step-name">Starting workflow...</span>
+    </div>
     <div class="divider my-2"></div>
     <div class="text-xs text-base-content/50" id="trace-id">
         Trace ID: Waiting...
@@ -18,19 +22,32 @@
 <script>
     (function () {
         const eventSource = new EventSource('/agent/stream-analysis');
+        const stepStatus = document.getElementById('step-status');
+        const stepSpinner = document.getElementById('step-spinner');
+        const stepName = document.getElementById('current-step-name');
 
         eventSource.onmessage = function (event) {
             try {
                 const data = JSON.parse(event.data);
 
+                // Handle Step Start
+                if (data.type === 'workflow-step-start') {
+                    if (stepSpinner) stepSpinner.classList.remove('hidden');
+                    if (stepName) stepName.textContent = 'Running step: ' + (data.payload?.stepId || data.payload?.id || 'Unknown');
+                }
+
                 // Handle Workflow Step Result (Analysis Output)
-                if (data.type === 'workflow-step-result' && (data.payload.id === 'analysisStep' || data.payload.stepId === 'analysisStep')) {
-                    const output = data.payload.output;
-                    const resultDiv = document.getElementById('analysis-result');
-                    if (resultDiv) {
-                        resultDiv.innerHTML = typeof output === 'string' ? output : JSON.stringify(output);
+                if (data.type === 'workflow-step-result') {
+                    // Check if this is the analysis step
+                    if (data.payload.stepId === 'analysisStep' || data.payload.id === 'analysisStep') {
+                        const output = data.payload.output;
+                        const resultDiv = document.getElementById('analysis-result');
+                        if (resultDiv) {
+                            resultDiv.innerHTML = typeof output === 'string' ? output : JSON.stringify(output);
+                        }
                     }
                 }
+
                 // Update Trace ID from any event that has runId
                 if (data.runId) {
                     const traceDiv = document.getElementById('trace-id');
@@ -44,6 +61,8 @@
                     eventSource.close();
                     const loading = document.getElementById('analysis-loading');
                     if (loading) loading.style.display = 'none';
+                    if (stepSpinner) stepSpinner.classList.add('hidden');
+                    if (stepName) stepName.textContent = 'Workflow Complete';
                 }
             } catch (e) {
                 console.error('Error parsing SSE event', e);
@@ -54,11 +73,12 @@
             console.error("SSE Connection failed");
             eventSource.close();
             const resultDiv = document.getElementById('analysis-result');
-            if (resultDiv && resultDiv.textContent === 'Initializing stream...') {
+            if (resultDiv && resultDiv.textContent.trim().startsWith('Initializing')) {
                 resultDiv.innerHTML = '<span class="text-error">Connection Failed. Please try again.</span>';
             }
             const loading = document.getElementById('analysis-loading');
             if (loading) loading.style.display = 'none';
+            if (stepName) stepName.textContent = 'Connection Error';
         }
     })();
 </script>

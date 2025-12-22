@@ -1,16 +1,34 @@
-import { Workflow } from '@mastra/core/workflows';
+import { Step, Workflow } from '@mastra/core/workflows';
 import { z } from 'zod';
 
+// Helper type to assert Step interface compliance
+type StepDef = Step<any, any, any, any, any, any, any>;
+
 export const createSystemWatchdogWorkflow = (systemHealthTool: any, systemAnalystAgent: any) => {
-    const fetchStep = {
+    const fetchStep: StepDef = {
         id: 'fetchStep',
+        inputSchema: z.object({}),
+        outputSchema: z.object({
+            status: z.string(),
+            resources: z.object({
+                memory: z.object({
+                    usagePercentage: z.string(),
+                }).optional(),
+            }).optional(),
+        }).optional(),
         execute: async () => {
             return await systemHealthTool.execute({});
         },
     };
 
-    const analysisStep = {
+    const analysisStep: StepDef = {
         id: 'analysisStep',
+        inputSchema: z.object({
+            context: z.any().optional(),
+        }),
+        outputSchema: z.object({
+            text: z.string().optional()
+        }).optional(),
         execute: async ({ context }: any) => {
             const healthData = context?.steps?.fetchStep?.output;
             const result = await systemAnalystAgent.generate(
@@ -20,35 +38,40 @@ export const createSystemWatchdogWorkflow = (systemHealthTool: any, systemAnalys
         },
     };
 
-    const logCritical = {
+    const logCritical: StepDef = {
         id: 'logCritical',
+        inputSchema: z.object({}),
+        outputSchema: z.object({
+            status: z.string()
+        }),
         execute: async () => {
             console.log('CRITICAL: High memory usage detected!');
             return { status: 'CRITICAL' };
         },
     };
 
-    const logNormal = {
+    const logNormal: StepDef = {
         id: 'logNormal',
+        inputSchema: z.object({}),
+        outputSchema: z.object({
+            status: z.string()
+        }),
         execute: async () => {
             console.log('System operating normally.');
             return { status: 'NORMAL' };
         },
     };
 
+    // Cast workflow to 'any' to bypass TS validation for .then/.branch if strict types are missing
     const workflow = new Workflow({
+        id: 'system-watchdog',
         name: 'system-watchdog',
         triggerSchema: z.object({}),
-    } as any);
-
-    // Chain steps: fetch -> analysis
-    // And add branching logic.
-    // We attach the branch *after* the analysis step, but the condition checks the fetch step output.
-    // This means the flow is: Fetch -> Analysis -> Branch (routes to Critical or Normal)
+    } as any) as any;
 
     workflow
-        .then(fetchStep as any)
-        .then(analysisStep as any)
+        .then(fetchStep)
+        .then(analysisStep)
         .branch([
             [
                 (context: any) => {
@@ -56,7 +79,7 @@ export const createSystemWatchdogWorkflow = (systemHealthTool: any, systemAnalys
                     const usage = parseFloat(usageStr);
                     return Promise.resolve(usage > 90);
                 },
-                logCritical as any
+                logCritical
             ],
             [
                 (context: any) => {
@@ -64,9 +87,9 @@ export const createSystemWatchdogWorkflow = (systemHealthTool: any, systemAnalys
                     const usage = parseFloat(usageStr);
                     return Promise.resolve(usage <= 90);
                 },
-                logNormal as any
+                logNormal
             ]
-        ] as any);
+        ]);
 
     return workflow.commit();
 };

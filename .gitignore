@@ -5,3 +5,15 @@
 .env
 .env.*
 .DS_Store
+
+# Mastra
+.mastra
+
+# Standard TypeScript/Node
+node_modules/
+dist/
+.build/
+
+# Environment secrets
+.env
+.env.local
