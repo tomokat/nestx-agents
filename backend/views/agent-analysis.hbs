@@ -58,11 +58,37 @@
 
                 // Handle Workflow Completion
                 if (data.type === 'workflow-finish') {
+                    // split: check if suspended
+                    if (data.payload.workflowStatus === 'suspended') {
+                        console.log('Workflow suspended (finish event ignored for UI completion)');
+                        eventSource.close();
+                        return;
+                    }
                     eventSource.close();
                     const loading = document.getElementById('analysis-loading');
                     if (loading) loading.style.display = 'none';
                     if (stepSpinner) stepSpinner.classList.add('hidden');
                     if (stepName) stepName.textContent = 'Workflow Complete';
+                }
+
+                // Handle Workflow Suspension
+                if (data.type === 'workflow-step-suspended') {
+                    // Show Resume Button
+                    const resultDiv = document.getElementById('analysis-result');
+                    if (resultDiv) {
+                        resultDiv.innerHTML += `
+                            <div class="alert alert-warning mt-4">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                                <div>
+                                    <h3 class="font-bold">System Flush Required!</h3>
+                                    <div class="text-xs">Critical memory usage detected. Manual approval needed to proceed.</div>
+                                </div>
+                                <button class="btn btn-sm btn-primary" onclick="resumeWorkflow('${data.runId}')">APPROVE SYSTEM FLUSH</button>
+                            </div>
+                        `;
+                    }
+                    if (stepName) stepName.textContent = 'SUSPENDED';
+                    if (stepSpinner) stepSpinner.classList.add('hidden');
                 }
             } catch (e) {
                 console.error('Error parsing SSE event', e);
@@ -80,5 +106,33 @@
             if (loading) loading.style.display = 'none';
             if (stepName) stepName.textContent = 'Connection Error';
         }
+
+        window.resumeWorkflow = function (runId) {
+            fetch('/agent/resume/' + runId, { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                    console.log('Resumed:', data);
+                    const resultDiv = document.getElementById('analysis-result');
+                    // Optional: remove button or update text
+                    if (resultDiv) {
+                        const alert = resultDiv.querySelector('.alert');
+                        if (alert) alert.remove();
+
+                        // Display the result from the resumed workflow run
+                        // Attempt to find the specific analysis output, or fall back to full JSON dump
+                        const output = data.result?.analysisStep?.output || data.result?.analysisStep || data.result || "Workflow resumed.";
+                        const outputText = typeof output === 'object' ? JSON.stringify(output, null, 2) : output;
+
+                        resultDiv.innerHTML += `<div class="text-success mt-2 mb-2 font-bold">System flush authorized. Resuming...</div>`;
+                        resultDiv.innerHTML += `<div class="mt-4 p-4 bg-base-100 rounded border border-base-300 animate-fade-in">${outputText}</div>`;
+
+                        // Update status text
+                        const stepName = document.getElementById('current-step-name');
+                        if (stepName) stepName.textContent = 'Workflow Complete';
+                    }
+                    // Spinner restarts on next event
+                })
+                .catch(err => console.error('Resume failed', err));
+        };
     })();
 </script>

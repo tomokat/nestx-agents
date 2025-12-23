@@ -1,9 +1,10 @@
-
 import { Mastra } from '@mastra/core';
 import { AppService } from '../app.service';
 import { createSystemHealthTool } from './tools/system-health';
 import { createSystemAnalystAgent } from './agents/system-analyst';
 import { createSystemWatchdogWorkflow } from './workflows/system-watchdog';
+import { LibSQLStore } from '@mastra/libsql';
+import * as path from 'path';
 
 // Manual instantiation for CLI context (outside NestJS IOC)
 const appService = new AppService();
@@ -18,4 +19,14 @@ export const mastra = new Mastra({
     workflows: {
         systemWatchdog: systemWatchdogWorkflow,
     },
+    storage: new LibSQLStore({
+        url: `file:${path.join(process.cwd(), 'mastra.db')}`
+    }),
+});
+
+// Add this to mastra/index.ts
+mastra.storage?.init().then(() => {
+    console.log('✅ Mastra Storage Initialized successfully');
+}).catch(err => {
+    console.error('❌ Mastra Storage Failed:', err);
 });

@@ -1,4 +1,4 @@
-import { Controller, Post, Sse, Inject, Res } from '@nestjs/common';
+import { Controller, Post, Sse, Inject, Res, Param, Body } from '@nestjs/common';
 import type { Response } from 'express';
 import { Mastra } from '@mastra/core';
 import { Observable } from 'rxjs';
@@ -16,6 +16,32 @@ export class AgentController {
         });
     }
 
+    @Post('resume/:runId')
+    async resume(@Param('runId') runId: string) {
+        const workflow = this.mastra.getWorkflow('systemWatchdog') as any;
+        if (!workflow) {
+            throw new Error('Workflow systemWatchdog not found');
+        }
+
+        try {
+            // Rehydrate the run using createRunAsync
+            // This works because we now have persistent LibSQL storage
+            const run = await (workflow as any).createRunAsync({ runId });
+
+            if (!run) {
+                throw new Error('Failed to create run instance from workflow');
+            }
+
+            console.log('Resuming run:', runId);
+            const result = await run.resume({ stepId: 'analysisStep' });
+
+            return { status: 'resumed', runId, result };
+        } catch (error) {
+            console.error('RESUME ERROR DETAILED:', error);
+            throw error;
+        }
+    }
+
     @Sse('stream-analysis')
     async streamAnalysis(): Promise<Observable<MessageEvent>> {
         const workflow = this.mastra.getWorkflow('systemWatchdog') as any;
@@ -28,12 +54,6 @@ export class AgentController {
 
         // Use standard run stream (vNext pattern)
         const stream = run.stream ? run.stream() : (await workflow.streamAsync ? await workflow.streamAsync() : workflow.stream());
-
-        // Transform stream to Observable MessageEvents attempting to emit raw JSON
-        // We use 'from' to wrap the async iterable stream
-        // We do NOT wrap valid JSON in strings or HTML. We send objects.
-        // NestJS @Sse will serialize objects to data: JSON_STRING automatically if we return objects.
-        // Or we can manually serialize needed properties.
 
         return new Observable<MessageEvent>(subscriber => {
             (async () => {

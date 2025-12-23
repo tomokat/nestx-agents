@@ -7,27 +7,15 @@ import { createSystemAnalystAgent } from '../mastra/agents/system-analyst';
 import { createSystemWatchdogWorkflow } from '../mastra/workflows/system-watchdog';
 import { AppModule } from '../app.module';
 
+import { mastra } from '../mastra/index';
+
 @Module({
     imports: [],
     controllers: [AgentController],
     providers: [
         {
             provide: 'MASTRA',
-            useFactory: (appService: AppService) => {
-                const systemHealthTool = createSystemHealthTool(appService);
-                const systemAnalystAgent = createSystemAnalystAgent(systemHealthTool);
-                const systemWatchdogWorkflow = createSystemWatchdogWorkflow(systemHealthTool, systemAnalystAgent);
-
-                return new Mastra({
-                    agents: {
-                        systemAnalyst: systemAnalystAgent,
-                    },
-                    workflows: {
-                        systemWatchdog: systemWatchdogWorkflow,
-                    },
-                });
-            },
-            inject: [AppService],
+            useValue: mastra,
         },
         AppService,
     ],

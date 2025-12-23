@@ -31,11 +31,11 @@ export const createSystemWatchdogWorkflow = (systemHealthTool: any, systemAnalys
         outputSchema: z.object({
             latency: z.union([z.number(), z.string()])
                 .transform((val) => {
-                    if (typeof val === 'string') {
-                        return parseFloat(val.replace(/[^0-9.]/g, ''));
-                    }
-                    return val;
+                    const strVal = String(val);
+                    const clean = strVal.replace(/[^0-9.]/g, '');
+                    return clean ? parseFloat(clean) : 0;
                 })
+                .pipe(z.number())
                 .optional(),
             status: z.string()
         }),
@@ -92,10 +92,21 @@ export const createSystemWatchdogWorkflow = (systemHealthTool: any, systemAnalys
         outputSchema: z.object({
             text: z.string().optional()
         }).optional(),
-        execute: async ({ context }: any) => {
+        execute: async ({ context, suspend }: any) => {
             const fetchResult = context?.steps?.fetchStep?.output;
             const networkResult = context?.steps?.networkStep?.output;
             const processResult = context?.steps?.processStep?.output;
+
+            // Explicitly fetch system health to ensure we have fresh data for the check
+            const freshHealth = await systemHealthTool.execute({});
+            const memoryUsage = parseFloat(freshHealth?.resources?.memory?.usagePercentage || '0');
+
+            if (memoryUsage > 90) { // Threshold for critical suspension
+                if (suspend) {
+                    await suspend();
+                    // Execution continues here after resume
+                }
+            }
 
             const combinedData = {
                 system: fetchResult,
