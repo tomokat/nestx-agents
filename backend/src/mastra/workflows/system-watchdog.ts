@@ -29,7 +29,14 @@ export const createSystemWatchdogWorkflow = (systemHealthTool: any, systemAnalys
         id: 'networkStep',
         inputSchema: z.object({}),
         outputSchema: z.object({
-            latency: z.number().optional(),
+            latency: z.union([z.number(), z.string()])
+                .transform((val) => {
+                    if (typeof val === 'string') {
+                        return parseFloat(val.replace(/[^0-9.]/g, ''));
+                    }
+                    return val;
+                })
+                .optional(),
             status: z.string()
         }),
         execute: async () => {
@@ -52,7 +59,7 @@ export const createSystemWatchdogWorkflow = (systemHealthTool: any, systemAnalys
             processes: z.array(z.object({
                 pid: z.string(),
                 memory: z.string(),
-                command: z.string()
+                command: z.string().transform(val => val.toLowerCase())
             }))
         }),
         execute: async () => {
