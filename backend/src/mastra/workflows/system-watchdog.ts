@@ -11,7 +11,7 @@ type StepDef = Step<any, any, any, any, any, any, any>;
 export const createSystemWatchdogWorkflow = (systemHealthTool: any, systemAnalystAgent: any) => {
     const fetchStep: StepDef = {
         id: 'fetchStep',
-        inputSchema: z.object({}),
+        inputSchema: z.object({}).optional(),
         outputSchema: z.object({
             status: z.string(),
             resources: z.object({
@@ -27,7 +27,7 @@ export const createSystemWatchdogWorkflow = (systemHealthTool: any, systemAnalys
 
     const networkStep: StepDef = {
         id: 'networkStep',
-        inputSchema: z.object({}),
+        inputSchema: z.object({}).optional(),
         outputSchema: z.object({
             latency: z.union([z.number(), z.string()])
                 .transform((val) => {
@@ -54,7 +54,7 @@ export const createSystemWatchdogWorkflow = (systemHealthTool: any, systemAnalys
 
     const processStep: StepDef = {
         id: 'processStep',
-        inputSchema: z.object({}),
+        inputSchema: z.object({}).optional(),
         outputSchema: z.object({
             processes: z.array(z.object({
                 pid: z.string(),
@@ -92,10 +92,33 @@ export const createSystemWatchdogWorkflow = (systemHealthTool: any, systemAnalys
         outputSchema: z.object({
             text: z.string().optional()
         }).optional(),
-        execute: async ({ context, suspend }: any) => {
-            const fetchResult = context?.steps?.fetchStep?.output;
-            const networkResult = context?.steps?.networkStep?.output;
-            const processResult = context?.steps?.processStep?.output;
+        execute: async ({ context, suspend, runId, mastra, tracingContext, getStepResult }: any) => {
+            const logger = mastra?.getLogger();
+            const fetchResult = getStepResult('fetchStep');
+            const networkResult = getStepResult('networkStep');
+            const processResult = getStepResult('processStep');
+
+            const combinedData = {
+                system: fetchResult,
+                network: networkResult,
+                topProcesses: processResult
+            };
+
+            logger?.info('Analysis Step Context Debug', {
+                contextKeys: context ? Object.keys(context) : [],
+                stepsKeys: context?.steps ? Object.keys(context.steps) : [],
+                // fetchStepOutput: context?.steps?.fetchStep, // Commented out to reduce noise if huge
+            });
+
+            logger?.info('Analysis Step Input', { combinedData });
+
+            // Debug Tracing
+            logger?.info('Analysis Step Tracing Debug', {
+                runId,
+                hasTracingContext: !!tracingContext,
+                tracingContextKeys: tracingContext ? Object.keys(tracingContext) : [],
+                currentSpan: tracingContext?.currentSpan ? 'Present' : 'Missing'
+            });
 
             // Explicitly fetch system health to ensure we have fresh data for the check
             const freshHealth = await systemHealthTool.execute({});
@@ -108,15 +131,30 @@ export const createSystemWatchdogWorkflow = (systemHealthTool: any, systemAnalys
                 }
             }
 
-            const combinedData = {
-                system: fetchResult,
-                network: networkResult,
-                topProcesses: processResult
-            };
+            const systemAnalyst = mastra.getAgent('systemAnalyst');
 
-            const result = await systemAnalystAgent.generate(
-                `Analyze the following system health data and provide a status report. Look for correlations between high cpu/memory and specific processes, and check if network latency is affected. Data: ${JSON.stringify(combinedData)}`
+            // CHECK HERE - This is the moment of truth!
+            console.log('LIVE AGENT INSPECTION:', {
+                agentId: systemAnalyst.id,
+                // Check both the old and new property names for the Beta
+                hasObservability: !!systemAnalyst.observability,
+                hasTelemetry: !!systemAnalyst.telemetry,
+                // @ts-ignore - Check if the engine actually passed the provider
+                hasProvider: !!systemAnalyst.observability?.provider
+            });
+
+            // Debug Agent
+            logger?.info('System Analyst Agent Debug', {
+                hasTelemetry: !!systemAnalyst?.telemetry, // Check internal property
+                agentName: systemAnalyst?.name
+            });
+
+            const result = await systemAnalyst.generate(
+                `Analyze the following system health data and provide a status report.Look for correlations between high cpu / memory and specific processes, and check if network latency is affected.Data: ${JSON.stringify(combinedData)} `,
+                { runId, tracingContext }
             );
+
+            logger?.info('Analysis Step Output', { result: result.text });
             return result.text;
         },
     };
@@ -127,8 +165,9 @@ export const createSystemWatchdogWorkflow = (systemHealthTool: any, systemAnalys
         outputSchema: z.object({
             status: z.string()
         }),
-        execute: async () => {
-            console.log('CRITICAL: High memory usage detected!');
+        execute: async ({ mastra }: any) => {
+            const logger = mastra?.getLogger();
+            logger?.warn('CRITICAL: High memory usage detected!');
             return { status: 'CRITICAL' };
         },
     };
@@ -139,8 +178,9 @@ export const createSystemWatchdogWorkflow = (systemHealthTool: any, systemAnalys
         outputSchema: z.object({
             status: z.string()
         }),
-        execute: async () => {
-            console.log('System operating normally.');
+        execute: async ({ mastra }: any) => {
+            const logger = mastra?.getLogger();
+            logger?.info('System operating normally.');
             return { status: 'NORMAL' };
         },
     };

@@ -24,9 +24,9 @@ export class AgentController {
         }
 
         try {
-            // Rehydrate the run using createRunAsync
+            // Rehydrate the run using createRun
             // This works because we now have persistent LibSQL storage
-            const run = await (workflow as any).createRunAsync({ runId });
+            const run = await (workflow as any).createRun({ runId });
 
             if (!run) {
                 throw new Error('Failed to create run instance from workflow');
@@ -44,28 +44,42 @@ export class AgentController {
 
     @Sse('stream-analysis')
     async streamAnalysis(): Promise<Observable<MessageEvent>> {
-        const workflow = this.mastra.getWorkflow('systemWatchdog') as any;
-        if (!workflow) {
-            throw new Error('Workflow systemWatchdog not found');
-        }
+        console.log('Stream Analysis Initiated');
+        try {
+            const workflow = this.mastra.getWorkflow('systemWatchdog') as any;
+            if (!workflow) {
+                console.error('Workflow not found');
+                throw new Error('Workflow systemWatchdog not found');
+            }
 
-        // Using createRunAsync to ensure we have a valid run context
-        const run = await workflow.createRunAsync();
+            console.log('Creating workflow run...');
+            // Using createRun to ensure we have a valid run context
+            const run = await workflow.createRun();
+            console.log('Workflow run created:', run?.runId);
 
-        // Use standard run stream (vNext pattern)
-        const stream = run.stream ? run.stream() : (await workflow.streamAsync ? await workflow.streamAsync() : workflow.stream());
+            // Use standard run stream (vNext pattern)
+            console.log('Starting stream...');
+            const stream = await run.stream();
+            console.log('Stream started');
 
-        return new Observable<MessageEvent>(subscriber => {
-            (async () => {
-                try {
-                    for await (const chunk of stream) {
-                        subscriber.next({ data: chunk } as MessageEvent);
+            return new Observable<MessageEvent>(subscriber => {
+                (async () => {
+                    try {
+                        for await (const chunk of stream) {
+                            // console.log('Chunk received', chunk);
+                            subscriber.next({ data: chunk } as MessageEvent);
+                        }
+                        console.log('Stream complete');
+                        subscriber.complete();
+                    } catch (err) {
+                        console.error('Stream subscription error:', err);
+                        subscriber.error(err);
                     }
-                    subscriber.complete();
-                } catch (err) {
-                    subscriber.error(err);
-                }
-            })();
-        });
+                })();
+            });
+        } catch (err) {
+            console.error('Setup Analysis Error:', err);
+            throw err;
+        }
     }
 }

@@ -21,8 +21,9 @@
   },
   "dependencies": {
     "@ai-sdk/google": "^2.0.51",
-    "@mastra/core": "^0.24.9",
-    "@mastra/libsql": "^0.16.4",
+    "@mastra/core": "^1.0.0-beta.17",
+    "@mastra/libsql": "^1.0.0-beta.10",
+    "@mastra/observability": "^1.0.0-beta.8",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.0.1",

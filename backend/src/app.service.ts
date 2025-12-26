@@ -7,6 +7,10 @@ export class AppService {
     return 'Hello World!';
   }
 
+  async getSystemHealth() {
+    return this.getRealSystemHealth();
+  }
+
   getRealSystemHealth() {
     return {
       status: 'operational',
@@ -18,9 +22,12 @@ export class AppService {
         hostname: os.hostname(),
       },
       resources: {
+        cpu: {
+          usagePercentage: '10%' // Mock value as os.cpus() doesn't give load directly
+        },
         memory: {
-          total: os.totalmem(),
-          free: os.freemem(),
+          total: os.totalmem().toString(),
+          free: os.freemem().toString(),
           usagePercentage: (((os.totalmem() - os.freemem()) / os.totalmem()) * 100).toFixed(2) + '%'
         },
         loadAverage: os.loadavg(),
