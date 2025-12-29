@@ -4,6 +4,7 @@ import { LibSQLStore } from '@mastra/libsql';
 import { AppService } from '../app.service';
 import { createSystemHealthTool } from './tools/system-health';
 import { createSystemAnalystAgent } from './agents/system-analyst';
+import { systemReportScorer } from './scorers';
 import { createSystemWatchdogWorkflow } from './workflows/system-watchdog';
 
 // Manual instantiation for CLI context (outside NestJS IOC)
@@ -25,6 +26,9 @@ export const mastra = new Mastra({
         systemWatchdog: systemWatchdogWorkflow,
     },
     storage: libSqlStore,
+    scorers: {
+        systemReportScorer: systemReportScorer as any,
+    },
     observability: new Observability({
         default: {
             enabled: true

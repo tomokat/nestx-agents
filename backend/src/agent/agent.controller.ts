@@ -71,6 +71,77 @@ export class AgentController {
                         }
                         console.log('Stream complete');
                         subscriber.complete();
+
+                        try {
+                            // Wait for the final result from the stream promise
+                            // @ts-ignore
+                            const finalResult = await stream.result;
+                            const results = finalResult.results || {};
+
+                            // Reconstruct combinedData
+                            // We need outputs from: fetchStep, networkStep, processStep
+                            const fetchStep = results['fetchStep'];
+                            const networkStep = results['networkStep'];
+                            const processStep = results['processStep'];
+
+                            const fetchResult = fetchStep?.output || fetchStep?.result || fetchStep;
+                            const networkResult = networkStep?.output || networkStep?.result || networkStep;
+                            const processResult = processStep?.output || processStep?.result || processStep;
+
+                            const combinedData = {
+                                system: fetchResult,
+                                network: networkResult,
+                                topProcesses: processResult
+                            };
+
+                            // Get analysisResult
+                            const analysisStep = results['analysisStep'];
+                            const analysisResult = analysisStep?.output?.text || analysisStep?.result?.text || analysisStep?.text || analysisStep?.output;
+
+                            if (analysisResult) {
+                                console.log('Executing Scorer...');
+                                // @ts-ignore
+                                const scorer = this.mastra.getScorer('systemReportScorer');
+                                if (scorer) {
+                                    const scoreResult = await scorer.run({
+                                        input: combinedData,
+                                        output: analysisResult
+                                    });
+                                    console.log('SCORER RESULT:', scoreResult.score);
+                                    console.log('SCORER INFO:', (scoreResult as any).info);
+
+                                    // Persist to DB
+                                    const scoresStorage = this.mastra.getStorage()?.stores?.scores;
+                                    if (scoresStorage) {
+                                        console.log('Persisting score to DB...');
+                                        await scoresStorage.saveScore({
+                                            score: scoreResult.score as number,
+                                            reason: (scoreResult as any).info?.reason,
+                                            scorerId: scorer.id,
+                                            runId: run.runId,
+                                            entityId: run.runId,
+                                            source: 'LIVE',
+                                            scorer: { id: scorer.id },
+                                            entity: { id: run.runId, type: 'workflow_run' },
+                                            input: combinedData,
+                                            output: analysisResult,
+                                        });
+                                        console.log('Score persisted.');
+                                    } else {
+                                        console.warn('Scores storage not found.');
+                                    }
+                                } else {
+                                    console.error('Scorer systemReportScorer not found');
+                                }
+                            } else {
+                                console.warn('Analysis result not found for scoring');
+                                console.log('DEBUG - Step Keys:', Object.keys(finalResult.results || {}));
+                                console.log('DEBUG - Analysis Step Object:', JSON.stringify(results['analysisStep'] || {}, null, 2));
+                            }
+
+                        } catch (scoreErr) {
+                            console.error('Error running scorer:', scoreErr);
+                        }
                     } catch (err) {
                         console.error('Stream subscription error:', err);
                         subscriber.error(err);
