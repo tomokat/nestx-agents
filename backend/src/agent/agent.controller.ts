@@ -33,7 +33,26 @@ export class AgentController {
             }
 
             console.log('Resuming run:', runId);
-            const result = await run.resume({ stepId: 'analysisStep' });
+            // Use resume and pass force: true in resumeData to skip the memory check re-run
+            const result = await (run as any).resume({
+                stepId: 'analysisStep',
+                resumeData: { force: true },
+                isVNext: true // Corrects double-closure bug in Beta
+            });
+
+            console.log('Resume call completed. Result status:', result?.status);
+
+            // If the workflow is finished (success or failure), we return the final result
+            // This prevents the "Controller is already closed" error by finishing the request cleanly
+            if (result?.status === 'success' || result?.status === 'failed') {
+                // RUN SCORING ON RESUME COMPLETION
+                await this.processScoring(run, result);
+                return { status: 'completed', runId, result };
+            }
+
+            if (result?.status === 'suspended') {
+                console.log('WARNING: Workflow RE-SUSPENDED at step:', Object.keys(result?.steps || {}).pop());
+            }
 
             return { status: 'resumed', runId, result };
         } catch (error) {
@@ -54,7 +73,10 @@ export class AgentController {
 
             console.log('Creating workflow run...');
             // Using createRun to ensure we have a valid run context
-            const run = await workflow.createRun();
+            const run = await workflow.createRun({
+                threadId: 'system-monitor-thread',
+                resourceId: 'system-monitor'
+            });
             console.log('Workflow run created:', run?.runId);
 
             // Use standard run stream (vNext pattern)
@@ -73,74 +95,11 @@ export class AgentController {
                         subscriber.complete();
 
                         try {
-                            // Wait for the final result from the stream promise
                             // @ts-ignore
                             const finalResult = await stream.result;
-                            const results = finalResult.results || {};
-
-                            // Reconstruct combinedData
-                            // We need outputs from: fetchStep, networkStep, processStep
-                            const fetchStep = results['fetchStep'];
-                            const networkStep = results['networkStep'];
-                            const processStep = results['processStep'];
-
-                            const fetchResult = fetchStep?.output || fetchStep?.result || fetchStep;
-                            const networkResult = networkStep?.output || networkStep?.result || networkStep;
-                            const processResult = processStep?.output || processStep?.result || processStep;
-
-                            const combinedData = {
-                                system: fetchResult,
-                                network: networkResult,
-                                topProcesses: processResult
-                            };
-
-                            // Get analysisResult
-                            const analysisStep = results['analysisStep'];
-                            const analysisResult = analysisStep?.output?.text || analysisStep?.result?.text || analysisStep?.text || analysisStep?.output;
-
-                            if (analysisResult) {
-                                console.log('Executing Scorer...');
-                                // @ts-ignore
-                                const scorer = this.mastra.getScorer('systemReportScorer');
-                                if (scorer) {
-                                    const scoreResult = await scorer.run({
-                                        input: combinedData,
-                                        output: analysisResult
-                                    });
-                                    console.log('SCORER RESULT:', scoreResult.score);
-                                    console.log('SCORER INFO:', (scoreResult as any).info);
-
-                                    // Persist to DB
-                                    const scoresStorage = this.mastra.getStorage()?.stores?.scores;
-                                    if (scoresStorage) {
-                                        console.log('Persisting score to DB...');
-                                        await scoresStorage.saveScore({
-                                            score: scoreResult.score as number,
-                                            reason: (scoreResult as any).info?.reason,
-                                            scorerId: scorer.id,
-                                            runId: run.runId,
-                                            entityId: run.runId,
-                                            source: 'LIVE',
-                                            scorer: { id: scorer.id },
-                                            entity: { id: run.runId, type: 'workflow_run' },
-                                            input: combinedData,
-                                            output: analysisResult,
-                                        });
-                                        console.log('Score persisted.');
-                                    } else {
-                                        console.warn('Scores storage not found.');
-                                    }
-                                } else {
-                                    console.error('Scorer systemReportScorer not found');
-                                }
-                            } else {
-                                console.warn('Analysis result not found for scoring');
-                                console.log('DEBUG - Step Keys:', Object.keys(finalResult.results || {}));
-                                console.log('DEBUG - Analysis Step Object:', JSON.stringify(results['analysisStep'] || {}, null, 2));
-                            }
-
+                            await this.processScoring(run, finalResult);
                         } catch (scoreErr) {
-                            console.error('Error running scorer:', scoreErr);
+                            console.error('Error in scoring loop:', scoreErr);
                         }
                     } catch (err) {
                         console.error('Stream subscription error:', err);
@@ -151,6 +110,67 @@ export class AgentController {
         } catch (err) {
             console.error('Setup Analysis Error:', err);
             throw err;
+        }
+    }
+
+    private async processScoring(run: any, finalResult: any) {
+        const results = finalResult.results || finalResult.steps || {};
+
+        // Reconstruct combinedData
+        const fetchStep = results['fetchStep'];
+        const networkStep = results['networkStep'];
+        const processStep = results['processStep'];
+
+        const fetchResult = fetchStep?.output || fetchStep?.result || fetchStep;
+        const networkResult = networkStep?.output || networkStep?.result || networkStep;
+        const processResult = processStep?.output || processStep?.result || processStep;
+
+        const combinedData = {
+            system: fetchResult,
+            network: networkResult,
+            topProcesses: processResult
+        };
+
+        // Get analysisResult
+        const analysisStep = results['analysisStep'];
+        const analysisResult = analysisStep?.output?.text || analysisStep?.result?.text || analysisStep?.text || analysisStep?.output;
+
+        if (analysisResult) {
+            console.log('Executing Scorer...');
+            // @ts-ignore
+            const scorer = this.mastra.getScorer('systemReportScorer');
+            if (scorer) {
+                try {
+                    const scoreResult = await scorer.run({
+                        input: combinedData,
+                        output: analysisResult
+                    });
+                    console.log('SCORER RESULT:', scoreResult.score);
+
+                    // Persist to DB
+                    const scoresStorage = this.mastra.getStorage()?.stores?.scores;
+                    if (scoresStorage) {
+                        console.log('Persisting score to DB...');
+                        await scoresStorage.saveScore({
+                            score: scoreResult.score as number,
+                            reason: (scoreResult as any).info?.reason,
+                            scorerId: scorer.id,
+                            runId: run.runId,
+                            entityId: run.runId,
+                            source: 'LIVE',
+                            scorer: { id: scorer.id },
+                            entity: { id: run.runId, type: 'workflow_run' },
+                            input: combinedData,
+                            output: analysisResult,
+                        });
+                        console.log('Score persisted.');
+                    }
+                } catch (scoreErr) {
+                    console.error('Error running scorer:', scoreErr);
+                }
+            }
+        } else {
+            console.warn('Analysis result not found for scoring. Step Keys:', Object.keys(results));
         }
     }
 }

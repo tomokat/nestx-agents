@@ -1,17 +1,30 @@
 import { Mastra } from '@mastra/core';
 import { Observability } from '@mastra/observability';
-import { LibSQLStore } from '@mastra/libsql';
+import { LibSQLStore, LibSQLVector } from '@mastra/libsql';
 import { AppService } from '../app.service';
 import { createSystemHealthTool } from './tools/system-health';
 import { createSystemAnalystAgent } from './agents/system-analyst';
 import { systemReportScorer } from './scorers';
 import { createSystemWatchdogWorkflow } from './workflows/system-watchdog';
 
+// Initialize Vector Store
+const vectorStore = new LibSQLVector({
+    connectionUrl: 'file:mastra.db',
+    id: 'system_memory_vector',
+});
+
 // Manual instantiation for CLI context (outside NestJS IOC)
 const appService = new AppService();
 const systemHealthTool = createSystemHealthTool(appService);
-const systemAnalystAgent = createSystemAnalystAgent(systemHealthTool);
+const systemAnalystAgent = createSystemAnalystAgent(systemHealthTool, vectorStore);
 const systemWatchdogWorkflow = createSystemWatchdogWorkflow(systemHealthTool, systemAnalystAgent);
+
+// Create Index (Idempotent-ish check usually good, but we'll just call it)
+// In a real app, maybe check if exists or catch error.
+// For this script, we'll await it in the init block or just fire and forget if safe.
+// Per instructions, we call it. Since top-level await might be tricky if not in module,
+// we'll put it in the async init block at the bottom
+
 
 const libSqlStore = new LibSQLStore({
     url: 'file:mastra.db',
@@ -24,6 +37,9 @@ export const mastra = new Mastra({
     },
     workflows: {
         systemWatchdog: systemWatchdogWorkflow,
+    },
+    vectors: {
+        system_memory: vectorStore,
     },
     storage: libSqlStore,
     scorers: {
@@ -39,6 +55,18 @@ export const mastra = new Mastra({
 (async () => {
     console.log('Mastra Storage Initializing...');
     await mastra?.getStorage()?.init();
+
+    // Create Vector Index
+    await vectorStore.createIndex({ indexName: 'system_memory', dimension: 768 });
+
+    const workflow = mastra.getWorkflow('systemWatchdog');
+    if (workflow) {
+        const run = await workflow.createRun({
+            threadId: 'system-monitor-thread',
+            resourceId: 'system-monitor'
+        });
+        console.log('Workflow run created:', run?.runId);
+    }
 })();
 
 // Add this to mastra/index.ts

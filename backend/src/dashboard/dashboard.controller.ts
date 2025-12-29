@@ -21,12 +21,14 @@ export class DashboardController {
             throw new Error('Workflow systemWatchdog not found');
         }
 
-        // Using createRunAsync to ensure we have a valid run context
-        const run = await workflow.createRunAsync();
+        // Using createRun to ensure we have a valid run context
+        const run = await workflow.createRun({
+            threadId: 'system-monitor-thread',
+            resourceId: 'system-monitor'
+        });
 
-        // Assuming run.stream() exists and returns an async iterable or stream
-        // Wrap in 'from' to convert to Observable
-        const stream = run.stream ? run.stream() : (await workflow.streamAsync ? await workflow.streamAsync() : workflow.stream());
+        // Use standard run stream
+        const stream = await run.stream();
 
         return map((event) => ({ data: event }))(from(stream));
     }

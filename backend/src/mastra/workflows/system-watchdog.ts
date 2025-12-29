@@ -2,6 +2,7 @@ import { Step, Workflow } from '@mastra/core/workflows';
 import { z } from 'zod';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { google } from '@ai-sdk/google';
 
 const execAsync = promisify(exec);
 
@@ -20,7 +21,7 @@ export const createSystemWatchdogWorkflow = (systemHealthTool: any, systemAnalys
                 }).optional(),
             }).optional(),
         }).optional(),
-        execute: async () => {
+        execute: async ({ context, mastra }: any) => {
             return await systemHealthTool.execute({});
         },
     };
@@ -39,7 +40,7 @@ export const createSystemWatchdogWorkflow = (systemHealthTool: any, systemAnalys
                 .optional(),
             status: z.string()
         }),
-        execute: async () => {
+        execute: async ({ context, mastra }: any) => {
             try {
                 // Ping google.com once, timeout after 2 seconds
                 const { stdout } = await execAsync('ping -c 1 -W 2000 google.com');
@@ -62,11 +63,8 @@ export const createSystemWatchdogWorkflow = (systemHealthTool: any, systemAnalys
                 command: z.string().transform(val => val.toLowerCase())
             }))
         }),
-        execute: async () => {
+        execute: async ({ context, mastra }: any) => {
             try {
-                // Get top 3 processes by memory usage
-                // ps -eo pid,pmem,comm | sort -k 2 -r | head -n 4 (1 header + 3 rows)
-                // On mac: ps -A -o pid,pmem,comm (flags might vary, using standard -o)
                 const { stdout } = await execAsync('ps -A -o pid,pmem,comm | sort -nrk 2 | head -n 3');
                 const lines = stdout.trim().split('\n');
                 const processes = lines.map(line => {
@@ -92,8 +90,29 @@ export const createSystemWatchdogWorkflow = (systemHealthTool: any, systemAnalys
         outputSchema: z.object({
             text: z.string().optional()
         }).optional(),
-        execute: async ({ context, suspend, runId, mastra, tracingContext, getStepResult }: any) => {
-            const logger = mastra?.getLogger();
+        execute: async (args: any) => {
+            const { suspend, runId, mastra, tracingContext, getStepResult, resumeData, resume } = args;
+            const isResuming = !!(args as any).resume;
+
+            const initData = typeof (args as any).getInitData === 'function' ? await (args as any).getInitData() : {};
+
+            // Comprehensive check for the force flag across all possible Beta API locations
+            const skipSuspend = isResuming ||
+                resumeData?.force ||
+                resume?.resumePayload?.force ||
+                (args as any)?.data?.force ||
+                (args as any)?.inputData?.force ||
+                (args as any)?.input?.force ||
+                (args as any)?.context?.input?.force ||
+                (args as any)?.context?.triggerData?.force ||
+                initData?.force;
+
+            console.log('🔍 analysisStep: isResuming=', isResuming, 'skipSuspend=', skipSuspend);
+            console.log('🔍 analysisStep: available arg keys:', Object.keys(args));
+            if (initData) console.log('🔍 analysisStep: initData:', JSON.stringify(initData));
+
+            if (skipSuspend) console.log('🔄 Bypassing suspension due to force flag');
+
             const fetchResult = getStepResult('fetchStep');
             const networkResult = getStepResult('networkStep');
             const processResult = getStepResult('processStep');
@@ -104,58 +123,21 @@ export const createSystemWatchdogWorkflow = (systemHealthTool: any, systemAnalys
                 topProcesses: processResult
             };
 
-            logger?.info('Analysis Step Context Debug', {
-                contextKeys: context ? Object.keys(context) : [],
-                stepsKeys: context?.steps ? Object.keys(context.steps) : [],
-                // fetchStepOutput: context?.steps?.fetchStep, // Commented out to reduce noise if huge
-            });
+            const memoryUsage = parseFloat(fetchResult?.resources?.memory?.usagePercentage || '0');
 
-            logger?.info('Analysis Step Input', { combinedData });
-
-            // Debug Tracing
-            logger?.info('Analysis Step Tracing Debug', {
-                runId,
-                hasTracingContext: !!tracingContext,
-                tracingContextKeys: tracingContext ? Object.keys(tracingContext) : [],
-                currentSpan: tracingContext?.currentSpan ? 'Present' : 'Missing'
-            });
-
-            // Explicitly fetch system health to ensure we have fresh data for the check
-            const freshHealth = await systemHealthTool.execute({});
-            const memoryUsage = parseFloat(freshHealth?.resources?.memory?.usagePercentage || '0');
-
-            if (memoryUsage > 90) { // Threshold for critical suspension
+            if (memoryUsage > 90 && !skipSuspend) {
                 if (suspend) {
-                    await suspend();
-                    // Execution continues here after resume
+                    await suspend({ force: true });
                 }
             }
 
             const systemAnalyst = mastra.getAgent('systemAnalyst');
-
-            // CHECK HERE - This is the moment of truth!
-            console.log('LIVE AGENT INSPECTION:', {
-                agentId: systemAnalyst.id,
-                // Check both the old and new property names for the Beta
-                hasObservability: !!systemAnalyst.observability,
-                hasTelemetry: !!systemAnalyst.telemetry,
-                // @ts-ignore - Check if the engine actually passed the provider
-                hasProvider: !!systemAnalyst.observability?.provider
-            });
-
-            // Debug Agent
-            logger?.info('System Analyst Agent Debug', {
-                hasTelemetry: !!systemAnalyst?.telemetry, // Check internal property
-                agentName: systemAnalyst?.name
-            });
-
             const result = await systemAnalyst.generate(
                 `Analyze the following system health data and provide a status report.Look for correlations between high cpu / memory and specific processes, and check if network latency is affected.Data: ${JSON.stringify(combinedData)} `,
                 { runId, tracingContext }
             );
 
-            logger?.info('Analysis Step Output', { result: result.text });
-            return result.text;
+            return { text: result.text };
         },
     };
 
@@ -185,6 +167,62 @@ export const createSystemWatchdogWorkflow = (systemHealthTool: any, systemAnalys
         },
     };
 
+    const saveToMemory: StepDef = {
+        id: 'saveToMemory',
+        inputSchema: z.any().optional(),
+        outputSchema: z.object({
+            success: z.boolean()
+        }),
+        execute: async ({ context, mastra, getStepResult }: any) => {
+            const analysisStepResult = getStepResult('analysisStep');
+            console.log('💾 RAG: analysisStepResult keys:', Object.keys(analysisStepResult || {}));
+            const analysisResult = analysisStepResult?.text || analysisStepResult?.output?.text || analysisStepResult;
+            console.log('💾 RAG: Attempting to save to memory. Analysis length:', typeof analysisResult === 'string' ? analysisResult.length : (analysisResult ? 'exists' : 'null'));
+            const fetchResult = getStepResult('fetchStep');
+            const networkResult = getStepResult('networkStep');
+            const processResult = getStepResult('processStep');
+
+            const combinedData = {
+                system: fetchResult,
+                network: networkResult,
+                topProcesses: processResult,
+                analysis: analysisResult
+            };
+
+            const vectorStore = mastra.getVector('system_memory');
+
+            if (vectorStore) {
+                try {
+                    const { embed } = require('ai');
+                    const model = google.embedding('text-embedding-004');
+
+                    const valueToEmbed = typeof analysisResult === 'string' ? analysisResult : JSON.stringify(analysisResult);
+
+                    const { embedding } = await embed({
+                        model,
+                        value: valueToEmbed,
+                    });
+
+                    await vectorStore.upsert({
+                        indexName: 'system_memory',
+                        vectors: [embedding],
+                        metadata: [combinedData],
+                        ids: [`analysis-${Date.now()}`]
+                    });
+                    console.log('✅ RAG: Successfully saved analysis to vector store');
+                    return { success: true };
+                } catch (err: any) {
+                    console.error('❌ RAG: Failed to save to memory:', err.message);
+                    console.error(err.stack);
+                    return { success: false, error: err.message };
+                }
+            } else {
+                console.error('❌ RAG: Vector store system_memory not found');
+            }
+            return { success: false };
+        }
+    };
+
     // Cast workflow to 'any' to bypass TS validation for .then/.branch if strict types are missing
     const workflow = new Workflow({
         id: 'system-watchdog',
@@ -192,25 +230,24 @@ export const createSystemWatchdogWorkflow = (systemHealthTool: any, systemAnalys
         triggerSchema: z.object({}),
     } as any) as any;
 
-    // Use .parallel() as requested to run the initial data gathering steps simultaneously
-    // Then pipe into analysis
     workflow
         .parallel([fetchStep, networkStep, processStep])
         .then(analysisStep)
+        .then(saveToMemory)
         .branch([
             [
-                (context: any) => {
-                    const usageStr = context?.steps?.fetchStep?.output?.resources?.memory?.usagePercentage || "0";
-                    const usage = parseFloat(usageStr);
-                    return Promise.resolve(usage > 90);
+                ({ context }: any) => {
+                    const analysisResult = context?.steps?.analysisStep?.output?.text || '';
+                    return analysisResult.toLowerCase().includes('critical') ||
+                        analysisResult.toLowerCase().includes('alert');
                 },
                 logCritical
             ],
             [
-                (context: any) => {
-                    const usageStr = context?.steps?.fetchStep?.output?.resources?.memory?.usagePercentage || "0";
-                    const usage = parseFloat(usageStr);
-                    return Promise.resolve(usage <= 90);
+                ({ context }: any) => {
+                    const analysisResult = context?.steps?.analysisStep?.output?.text || '';
+                    return !(analysisResult.toLowerCase().includes('critical') ||
+                        analysisResult.toLowerCase().includes('alert'));
                 },
                 logNormal
             ]
