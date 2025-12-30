@@ -1,5 +1,6 @@
 import { Controller, Get, Post, Render, Body, Query, Sse, Inject } from '@nestjs/common';
 import { Mastra } from '@mastra/core';
+import { LibSQLStore } from '@mastra/libsql';
 import { map, from } from 'rxjs';
 
 // Simple in-memory state for demonstration
@@ -96,5 +97,83 @@ export class DashboardController {
             uptime: Math.floor(process.uptime()),
             layout: false // Important: Do not render the full layout
         };
+    }
+
+    @Get('history')
+    @Render('history')
+    async getHistory() {
+        let store = (this.mastra as any).storage;
+        let rows = [];
+
+        try {
+            // Attempt to query the vector table directly via the storage client
+            // We need to access the underlying LibSQL client
+            // @ts-ignore - bypassing protected/private access if needed or just untyped prop
+            let client = store?.client || store?.db;
+
+            // FALLBACK: If injection failed to give us a working client, create a local connection
+            if (!client) {
+                console.warn('⚠️ Main storage client missing. attempting fallback connection...');
+                try {
+                    const fallbackStore = new LibSQLStore({
+                        url: 'file:mastra.db',
+                        id: 'fallback_history_store'
+                    });
+                    await fallbackStore.init();
+                    // @ts-ignore
+                    client = fallbackStore.client || fallbackStore.db;
+                    console.log('✅ Fallback connection established');
+                } catch (fbErr) {
+                    console.error('❌ Fallback connection failed:', fbErr);
+                }
+            }
+
+            if (client) {
+                const result = await client.execute('SELECT metadata FROM system_memory ORDER BY id DESC LIMIT 10');
+
+                rows = result.rows.map((row: any) => {
+                    try {
+                        // row might be an array [jsonString] or an object { metadata: jsonString }
+                        // LibSQL client typically returns arrays for values
+                        let rawMeta = row;
+                        if (Array.isArray(row)) {
+                            rawMeta = row[0];
+                        } else if (row && typeof row === 'object' && 'metadata' in row) {
+                            rawMeta = row.metadata;
+                        }
+
+                        const meta = typeof rawMeta === 'string' ? JSON.parse(rawMeta) : rawMeta;
+
+                        // Sanity check on parsed object
+                        if (!meta || typeof meta !== 'object') {
+                            return {
+                                timestamp: 'Invalid Data',
+                                analysis_short: 'Error',
+                                analysis_html: 'Metadata is not an object'
+                            };
+                        }
+
+                        return {
+                            timestamp: meta.timestamp ? new Date(meta.timestamp).toLocaleString() : 'Just now',
+                            analysis_short: 'Analysis Log',
+                            analysis_html: meta.content || meta.analysis || '<em>No content available</em>' // Use content or analysis
+                        };
+                    } catch (e) {
+                        console.error('Error parsing row metadata', e);
+                        return {
+                            timestamp: 'Parse Error',
+                            analysis_short: 'Error',
+                            analysis_html: 'Invalid metadata format'
+                        };
+                    }
+                });
+            } else {
+                console.error('❌ CRITICAL: Could not obtain any storage client (Main or Fallback).');
+            }
+        } catch (error) {
+            console.error('❌ Failed to fetch history:', error);
+        }
+
+        return { history: rows, layout: false };
     }
 }

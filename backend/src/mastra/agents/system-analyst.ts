@@ -16,7 +16,14 @@ export const createSystemAnalystAgent = (systemHealthTool: any, vectorStore: any
     Also check if there is any network latency impact.
     Before giving a final analysis, use the recallPastMetrics tool to see if the current system state matches any past trends or issues.
     When searching memory, always look for the resource "system-monitor" to find historical system health trends.
-    Format your response using HTML tags suitable for embedding in a notification card (e.g., using <strong>, <ul>, <li>).
+    Your response will be rendered directly in a dashboard sidebar, so it must be a valid HTML fragment.
+    Do NOT wrap the output in markdown code blocks (like html code fence). Just return the raw HTML string.
+    Use proper HTML5 tags for structuring:
+        - Use < ul > and<li> for lists of issues or metrics.
+    - Use<strong> for emphasis.
+    - Use < span class= "text-error" > for critical issues.
+    - Use < span class= "text-success" > for good status.
+    Your history is visible in the sidebar; use the recallPastMetrics tool to explain how the current state compares to those specific past events.
     Keep it professional but concise.`,
         model: google('gemini-2.5-flash'),
         tools: {

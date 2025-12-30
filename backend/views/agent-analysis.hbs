@@ -119,8 +119,13 @@
                         if (alert) alert.remove();
 
                         // Display the result from the resumed workflow run
-                        // Attempt to find the specific analysis output, or fall back to full JSON dump
-                        const output = data.result?.analysisStep?.output || data.result?.analysisStep || data.result || "Workflow resumed.";
+                        // The resume logic returns { status, runId, result } where result contains the step outputs
+                        const resultObj = data.result?.results || data.result?.steps || {};
+                        const analysisStep = resultObj['analysisStep'];
+
+                        // Check for 'text' property which contains the HTML, or fallbacks
+                        const output = analysisStep?.output?.text || analysisStep?.output || analysisStep?.text || analysisStep || "Workflow resumed.";
+
                         const outputText = typeof output === 'object' ? JSON.stringify(output, null, 2) : output;
 
                         resultDiv.innerHTML += `<div class="text-success mt-2 mb-2 font-bold">System flush authorized. Resuming...</div>`;
