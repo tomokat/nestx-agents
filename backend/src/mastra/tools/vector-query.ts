@@ -1,5 +1,6 @@
 import { ToolAction } from '@mastra/core/tools';
 import { z } from 'zod';
+import { embed } from 'ai';
 
 export function createVectorQueryTool({
     vectorStoreName,
@@ -64,8 +65,6 @@ export function createVectorQueryTool({
 
             // Re-checking imports... 'ai' is in dependencies.
 
-            const { embed } = require('ai');
-
             const { embedding } = await embed({
                 model: options.model,
                 value: query,
@@ -75,6 +74,7 @@ export function createVectorQueryTool({
                 indexName: vectorStoreName,
                 queryVector: embedding,
                 topK: options.topK || 3,
+                filter: { agent_name: { $eq: 'systemWatchdog' } },
             });
 
             const resultsWithContent = results.map((r: any) => ({

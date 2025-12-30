@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { google } from '@ai-sdk/google';
+import { embed } from 'ai';
 
 const execAsync = promisify(exec);
 
@@ -131,10 +132,14 @@ export const createSystemWatchdogWorkflow = (systemHealthTool: any, systemAnalys
                 }
             }
 
-            const systemAnalyst = mastra.getAgent('systemAnalyst');
+            const systemAnalyst = mastra.getAgent('systemWatchdog');
             const result = await systemAnalyst.generate(
                 `Analyze the following system health data and provide a status report.Look for correlations between high cpu / memory and specific processes, and check if network latency is affected.Data: ${JSON.stringify(combinedData)} `,
-                { runId, tracingContext }
+                {
+                    runId,
+                    tracingContext,
+                    memory: { resource: 'system-monitor', thread: 'main-thread' }
+                }
             );
 
             return { text: result.text };
@@ -193,7 +198,6 @@ export const createSystemWatchdogWorkflow = (systemHealthTool: any, systemAnalys
 
             if (vectorStore) {
                 try {
-                    const { embed } = require('ai');
                     const model = google.embedding('text-embedding-004');
 
                     const valueToEmbed = typeof analysisResult === 'string' ? analysisResult : JSON.stringify(analysisResult);
@@ -206,7 +210,13 @@ export const createSystemWatchdogWorkflow = (systemHealthTool: any, systemAnalys
                     await vectorStore.upsert({
                         indexName: 'system_memory',
                         vectors: [embedding],
-                        metadata: [combinedData],
+                        metadata: [{
+                            ...combinedData,
+                            agent_name: 'systemWatchdog',
+                            content: valueToEmbed,
+                            resourceId: 'system-monitor',
+                            timestamp: new Date().toISOString(),
+                        }],
                         ids: [`analysis-${Date.now()}`]
                     });
                     console.log('✅ RAG: Successfully saved analysis to vector store');

@@ -162,6 +162,8 @@ export class AgentController {
                             entity: { id: run.runId, type: 'workflow_run' },
                             input: combinedData,
                             output: analysisResult,
+                            // @ts-ignore
+                            agent_name: 'systemWatchdog',
                         });
                         console.log('Score persisted.');
                     }

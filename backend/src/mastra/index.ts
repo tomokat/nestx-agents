@@ -33,7 +33,7 @@ const libSqlStore = new LibSQLStore({
 
 export const mastra = new Mastra({
     agents: {
-        systemAnalyst: systemAnalystAgent,
+        systemWatchdog: systemAnalystAgent,
     },
     workflows: {
         systemWatchdog: systemWatchdogWorkflow,
@@ -87,7 +87,7 @@ libSqlStore.init().then(() => {
         // @ts-ignore - Let's check the internal enabled state
         isEnabled: mastra.observability?.config?.enabled,
         // @ts-ignore - Check if the agent is actually linked
-        agentObs: !!mastra.getAgent('systemAnalyst').observability
+        agentObs: !!mastra.getAgent('systemWatchdog').observability
     });
 }).catch(err => {
     const logger = mastra.getLogger();
@@ -122,6 +122,7 @@ console.log('FINAL ENGINE AUDIT:', {
     hasEngine: !!telemetryEngine,
     // This will tell us if the engine has a live connection to the DB
     hasExporter: !!telemetryEngine?.exporter,
+    agentFound: !!mastra.getAgent('systemWatchdog')
 });
 
 // FORCE SYNC: Tell the engine to re-scan and instrument all registered agents
